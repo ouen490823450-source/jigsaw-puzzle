@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>拼图游戏</title>
+<style>
+  :root { --accent: #4f8cff; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Microsoft YaHei", system-ui, sans-serif;
+    background: #1e2230;
+    color: #e8ecf4;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px 48px;
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
+    overflow-x: hidden;            /* 防止拼块透明边缘造成横向滚动条 */
+  }
+  h1 { margin: 0 0 4px; font-size: 26px; }
+  .subtitle { color: #9aa3b8; font-size: 14px; margin-bottom: 20px; }
+
+  .panel {
+    background: #272c3d;
+    border-radius: 14px;
+    padding: 18px 22px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px 26px;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 6px 20px rgba(0,0,0,.25);
+    margin-bottom: 22px;
+    max-width: 780px;
+  }
+  .control { display: flex; flex-direction: column; gap: 6px; }
+  .control label { font-size: 13px; color: #9aa3b8; }
+  .control .row { display: flex; align-items: center; gap: 10px; }
+
+  input[type="range"] { width: 170px; accent-color: var(--accent); }
+  .pieces-num { font-size: 16px; font-weight: 700; color: var(--accent); min-width: 56px; text-align: center; }
+
+  select {
+    background: #3a4055; color: #e8ecf4; border: none;
+    padding: 9px 12px; border-radius: 8px; font-size: 14px;
+    font-family: inherit; cursor: pointer;
+  }
+  button, .filebtn {
+    background: var(--accent); color: #fff; border: none;
+    padding: 10px 18px; border-radius: 9px; font-size: 14px;
+    cursor: pointer; transition: filter .15s; font-family: inherit;
+  }
+  button:hover, .filebtn:hover { filter: brightness(1.1); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.secondary { background: #3a4055; }
+  input[type="file"] { display: none; }
+
+  .stats { display: flex; gap: 22px; margin-bottom: 14px; font-size: 14px; color: #c4cbdc; flex-wrap: wrap; justify-content: center; }
+  .stats b { color: var(--accent); }
+
+  .arena { display: flex; flex-direction: column; gap: 18px; align-items: center; justify-content: flex-start; }
+
+  #board {
+    display: grid;
+    gap: 0;
+    background: #11141d;
+    border-radius: 10px;
+    box-shadow: 0 8px 30px rgba(0,0,0,.35);
+    position: relative;
+  }
+  .cell {
+    position: relative;
+    overflow: visible;
+    transition: box-shadow .12s;
+  }
+  .cell.empty { box-shadow: inset 0 0 0 1px #3a4055; background: #181c28; }
+  .cell.over { box-shadow: inset 0 0 0 2px var(--accent); }
+
+  .piece {
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    cursor: grab;
+    touch-action: none;            /* 手指按住拼块时禁止页面滚动/缩放，确保能拖动 */
+    -webkit-touch-callout: none;   /* 禁止 iOS 长按弹出菜单 */
+    -webkit-user-drag: none;
+  }
+  .piece.correct { filter: drop-shadow(0 0 2px #3ddc84) drop-shadow(0 0 1px #3ddc84); }
+  /* 拖拽过程中关闭所有拼块的命中，保证能拖到下面的格子 */
+  body.dragging-active .piece { pointer-events: none; }
+
+  .tray-wrap { display: flex; flex-direction: column; gap: 8px; align-items: center; }
+  .tray-title { font-size: 13px; color: #9aa3b8; }
+  #tray {
+    display: flex; flex-wrap: wrap; gap: 2px;
+    background: #11141d; padding: 10px; border-radius: 10px;
+    min-width: 150px;
+    align-content: flex-start; justify-content: center;
+    box-shadow: 0 8px 30px rgba(0,0,0,.35);
+    outline: 2px solid transparent; transition: outline-color .12s;
+  }
+  #tray.over { outline-color: var(--accent); }
+  #tray.hidden { display: none; }
+
+  #ghost {
+    position: fixed; pointer-events: none; z-index: 999;
+    background-repeat: no-repeat; background-size: 100% 100%;
+    filter: drop-shadow(0 8px 14px rgba(0,0,0,.55));
+    display: none;
+  }
+
+  .hint { color: #9aa3b8; font-size: 13px; margin-top: 18px; max-width: 580px; text-align: center; line-height: 1.7; }
+  .win {
+    margin-top: 18px; background: #1f3a2a; border: 1px solid #3ddc84;
+    color: #8af0b6; padding: 12px 20px; border-radius: 10px;
+    font-size: 16px; font-weight: 700; display: none;
+  }
+  .win.show { display: block; animation: pop .3s ease; }
+  @keyframes pop { from { transform: scale(.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+  .placeholder {
+    width: 320px; height: 240px; display: flex; align-items: center; justify-content: center;
+    color: #6b7488; border: 2px dashed #3a4055; border-radius: 10px;
+    font-size: 15px; text-align: center; padding: 20px;
+  }
+</style>
+</head>
+<body>
+  <h1>🧩 拼图游戏</h1>
+  <div class="subtitle">上传本地图片，选择片数与玩法，拼出带凹凸锯齿的经典拼图</div>
+
+  <div class="panel">
+    <div class="control">
+      <label>选择图片</label>
+      <label class="filebtn" for="fileInput">📁 上传本地图片</label>
+      <input type="file" id="fileInput" accept="image/*">
+    </div>
+    <div class="control">
+      <label>拼图片数</label>
+      <div class="row">
+        <input type="range" id="pieceRange" min="2" max="16" value="9">
+        <span class="pieces-num" id="pieceLabel">9 片</span>
+      </div>
+    </div>
+    <div class="control">
+      <label>玩法模式</label>
+      <select id="modeSelect">
+        <option value="swap">交换模式（棋盘内互换）</option>
+        <option value="place">拖放模式（从待拼区拖入）</option>
+      </select>
+    </div>
+    <div class="control">
+      <label>&nbsp;</label>
+      <div class="row">
+        <button id="startBtn" disabled>开始 / 打乱</button>
+        <button id="previewBtn" class="secondary" disabled>查看原图</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div>用时：<b id="timer">0</b> 秒</div>
+    <div>步数：<b id="moves">0</b></div>
+    <div>布局：<b id="layout">—</b></div>
+    <div>进度：<b id="progress">—</b></div>
+  </div>
+
+  <div class="arena">
+    <div id="board"><div class="placeholder">请先上传一张本地图片，<br>选择玩法后点击「开始 / 打乱」</div></div>
+    <div class="tray-wrap" id="trayWrap" style="display:none;">
+      <div class="tray-title">待拼区（拖到上方格子）</div>
+      <div id="tray"></div>
+    </div>
+  </div>
+
+  <div class="win" id="winMsg">🎉 恭喜完成拼图！</div>
+  <div class="hint" id="hint"></div>
+  <div id="ghost"></div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const fileInput=$('fileInput'), pieceRange=$('pieceRange'), pieceLabel=$('pieceLabel');
+  const modeSelect=$('modeSelect'), startBtn=$('startBtn'), previewBtn=$('previewBtn');
+  const board=$('board'), tray=$('tray'), trayWrap=$('trayWrap'), ghost=$('ghost');
+  const timerEl=$('timer'), movesEl=$('moves'), layoutEl=$('layout'), progressEl=$('progress');
+  const winMsg=$('winMsg'), hintEl=$('hint');
+
+  const BOARD_MAX = 480;
+  const TAB = 0.26;          // 凸起高度（相对边长）
+  const HINTS = {
+    swap: '交换模式：把一块拖到另一块上即可交换位置。凸起(凸)与凹槽(凹)互补，拼对后边缘严丝合缝；绿色光晕表示已归位。',
+    place: '拖放模式：所有拼块散落在下方待拼区。把每块拖到上方正确格子；可与已放置的块交换，或拖回待拼区。全部归位即获胜。'
+  };
+
+  let imgURL=null, imgEl=null;
+  let rows=1, cols=1, n=9;
+  let cellW=0, cellH=0, boardW=0, boardH=0, m=0, pieceW=0, pieceH=0, trayScale=1;
+  let mode='swap';
+  let moves=0, timer=0, timerId=null;
+  let showingPreview=false, active=false;
+
+  let order=[];                 // 交换模式：order[显示位置]=原始块索引
+  let slotAt=[], trayPieces=[]; // 拖放模式
+  let pieceData=[];             // pieceData[原始块索引]=该块图像 dataURL
+  let rightEdge=[], bottomEdge=[]; // 边的凹凸（±1）
+
+  let drag=null;
+
+  function bestLayout(num){
+    let best=[1,num];
+    for(let r=1;r<=num;r++){ if(num%r===0){ const c=num/r; if(Math.abs(r-c)<Math.abs(best[0]-best[1])) best=[r,c]; } }
+    return best;
+  }
+  function updateLayoutLabel(){
+    const num=+pieceRange.value; const [r,c]=bestLayout(num);
+    pieceLabel.textContent=num+' 片'; layoutEl.textContent=r+' × '+c;
+  }
+  pieceRange.addEventListener('input', updateLayoutLabel); updateLayoutLabel();
+
+  modeSelect.addEventListener('change', ()=>{ mode=modeSelect.value; hintEl.textContent=HINTS[mode]; if(active) start(); });
+  hintEl.textContent=HINTS[mode];
+
+  fileInput.addEventListener('change', e=>{
+    const file=e.target.files[0]; if(!file) return;
+    if(imgURL) URL.revokeObjectURL(imgURL);
+    imgURL=URL.createObjectURL(file);
+    imgEl=new Image();
+    imgEl.onload=()=>{ startBtn.disabled=false; previewBtn.disabled=false;
+      board.innerHTML='<div class="placeholder">图片已就绪，点击「开始 / 打乱」开始游戏</div>'; };
+    imgEl.src=imgURL;
+  });
+
+  startBtn.addEventListener('click', start);
+  previewBtn.addEventListener('click', ()=>{ if(!active) return;
+    showingPreview=!showingPreview; previewBtn.textContent=showingPreview?'返回游戏':'查看原图'; render(); });
+
+  function start(){
+    if(!imgEl) return;
+    mode=modeSelect.value; n=+pieceRange.value;
+    [rows,cols]=bestLayout(n); layoutEl.textContent=rows+' × '+cols;
+
+    const ratio=imgEl.naturalWidth/imgEl.naturalHeight;
+    // 自适应屏幕：先按宽度铺满（手机上不溢出），再按高度收一下
+    const maxW=Math.min(BOARD_MAX, window.innerWidth-24);
+    const maxH=Math.min(BOARD_MAX, (window.innerHeight||800)-120);
+    let bw=maxW, bh=bw/ratio;
+    if(bh>maxH){ bh=maxH; bw=bh*ratio; }
+    boardW=bw; boardH=bh;
+    cellW=boardW/cols; cellH=boardH/rows;
+    m=Math.ceil(TAB*Math.max(cellW,cellH))+2;
+    pieceW=Math.ceil(cellW)+2*m; pieceH=Math.ceil(cellH)+2*m;
+    // 待拼区缩略图：让格子主体约 50px，过大则缩小，过小则保持原样
+    trayScale=Math.min(1, 50/cellW);
+
+    board.style.gridTemplateColumns=`repeat(${cols}, ${cellW}px)`;
+    board.style.gridTemplateRows=`repeat(${rows}, ${cellH}px)`;
+    board.style.width=boardW+'px'; board.style.height=boardH+'px';
+
+    generateEdges();
+    buildPieces();
+
+    const ids=Array.from({length:n},(_,i)=>i);
+    if(mode==='swap'){
+      trayWrap.style.display='none';
+      order=ids.slice(); do{ shuffle(order); }while(order.every((v,i)=>v===i)&&n>1);
+    } else {
+      trayWrap.style.display='';
+      tray.style.width=Math.round(boardW)+'px'; // 待拼区与棋盘等宽，置于下方
+      slotAt=new Array(n).fill(null); trayPieces=ids.slice(); shuffle(trayPieces);
+    }
+
+    showingPreview=false; previewBtn.textContent='查看原图';
+    active=true; resetStats(); render(); startTimer();
+  }
+
+  function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } }
+
+  // ---- 生成每条内部边的凹凸（相邻块互补）----
+  function generateEdges(){
+    rightEdge=Array.from({length:rows},()=>new Array(cols).fill(0));
+    bottomEdge=Array.from({length:rows},()=>new Array(cols).fill(0));
+    for(let r=0;r<rows;r++) for(let c=0;c<cols-1;c++) rightEdge[r][c]=Math.random()<0.5?1:-1;
+    for(let r=0;r<rows-1;r++) for(let c=0;c<cols;c++) bottomEdge[r][c]=Math.random()<0.5?1:-1;
+  }
+  function signsFor(idx){
+    const r=Math.floor(idx/cols), c=idx%cols;
+    return {
+      top:    r===0       ? 0 : -bottomEdge[r-1][c],
+      bottom: r===rows-1  ? 0 :  bottomEdge[r][c],
+      left:   c===0       ? 0 : -rightEdge[r][c-1],
+      right:  c===cols-1  ? 0 :  rightEdge[r][c]
+    };
+  }
+
+  // ---- 用贝塞尔曲线在一条边上画出凸/凹的锯齿 ----
+  function edgePath(path, A, B, sign){
+    if(!sign){ path.lineTo(B.x,B.y); return; }
+    const dx=B.x-A.x, dy=B.y-A.y, L=Math.hypot(dx,dy);
+    const ux=dx/L, uy=dy/L, nx=uy, ny=-ux; // 外法线
+    const P=(a,p)=>({ x:A.x+ux*(a*L)+nx*(p*L*sign), y:A.y+uy*(a*L)+ny*(p*L*sign) });
+    let q=P(0.36,0); path.lineTo(q.x,q.y);
+    let c1=P(0.30,0), c2=P(0.30,TAB), e1=P(0.50,TAB);
+    path.bezierCurveTo(c1.x,c1.y,c2.x,c2.y,e1.x,e1.y);
+    let c3=P(0.70,TAB), c4=P(0.70,0), e2=P(0.64,0);
+    path.bezierCurveTo(c3.x,c3.y,c4.x,c4.y,e2.x,e2.y);
+    path.lineTo(B.x,B.y);
+  }
+
+  function buildPieces(){
+    const dpr=window.devicePixelRatio||1;
+    pieceData=new Array(n);
+    for(let idx=0; idx<n; idx++){
+      const r=Math.floor(idx/cols), c=idx%cols, s=signsFor(idx);
+      const cv=document.createElement('canvas');
+      cv.width=Math.round(pieceW*dpr); cv.height=Math.round(pieceH*dpr);
+      const ctx=cv.getContext('2d'); ctx.scale(dpr,dpr);
+
+      const TL={x:m,y:m}, TR={x:m+cellW,y:m}, BR={x:m+cellW,y:m+cellH}, BL={x:m,y:m+cellH};
+      const path=new Path2D(); path.moveTo(TL.x,TL.y);
+      edgePath(path,TL,TR,s.top);
+      edgePath(path,TR,BR,s.right);
+      edgePath(path,BR,BL,s.bottom);
+      edgePath(path,BL,TL,s.left);
+      path.closePath();
+
+      ctx.save(); ctx.clip(path);
+      // 把整张图按棋盘尺寸绘制，并平移到本块对应位置
+      ctx.drawImage(imgEl, 0,0, imgEl.naturalWidth, imgEl.naturalHeight,
+                    m - c*cellW, m - r*cellH, boardW, boardH);
+      ctx.restore();
+      // 描边，增强拼块轮廓
+      ctx.lineWidth=1.2; ctx.strokeStyle='rgba(0,0,0,.45)'; ctx.stroke(path);
+      ctx.lineWidth=0.6; ctx.strokeStyle='rgba(255,255,255,.18)'; ctx.stroke(path);
+
+      pieceData[idx]=cv.toDataURL();
+    }
+  }
+
+  // ---- 渲染 ----
+  function render(){ if(mode==='swap') renderSwap(); else renderPlace(); updateProgress(); }
+
+  function cellEl(pos, empty){
+    const el=document.createElement('div');
+    el.className='cell'+(empty?' empty':'');
+    el.dataset.pos=pos; el.style.width=cellW+'px'; el.style.height=cellH+'px';
+    return el;
+  }
+  function pieceEl(idx, inCell, correct){
+    const d=document.createElement('div');
+    d.className='piece'+(correct?' correct':'');
+    d.style.backgroundImage=`url(${pieceData[idx]})`;
+    d.dataset.piece=idx;
+    if(inCell){
+      d.style.width=pieceW+'px'; d.style.height=pieceH+'px';
+      d.style.position='absolute'; d.style.left=(-m)+'px'; d.style.top=(-m)+'px';
+    } else {
+      // 待拼区：缩小为缩略图（保留完整凸起，互不遮挡）
+      d.style.width=(pieceW*trayScale)+'px'; d.style.height=(pieceH*trayScale)+'px';
+    }
+    attachDrag(d);
+    return d;
+  }
+
+  function renderSwap(){
+    board.innerHTML='';
+    for(let pos=0;pos<n;pos++){
+      const cell=cellEl(pos,false);
+      const idx=showingPreview?pos:order[pos];
+      const correct=!showingPreview && order[pos]===pos;
+      cell.appendChild(pieceEl(idx,true,correct));
+      board.appendChild(cell);
+    }
+  }
+  function renderPlace(){
+    board.innerHTML='';
+    for(let pos=0;pos<n;pos++){
+      const content=showingPreview?pos:slotAt[pos];
+      const empty=content==null && !showingPreview;
+      const cell=cellEl(pos,empty);
+      if(content!=null){
+        const correct=!showingPreview && content===pos;
+        cell.appendChild(pieceEl(content,true,correct));
+      }
+      board.appendChild(cell);
+    }
+    tray.classList.toggle('hidden', showingPreview);
+    tray.innerHTML='';
+    if(!showingPreview){ for(const idx of trayPieces) tray.appendChild(pieceEl(idx,false,false)); }
+  }
+
+  // ---- 统一指针拖拽（鼠标 + 触摸）----
+  function attachDrag(piece){
+    piece.addEventListener('pointerdown', e=>{
+      if(showingPreview) return;
+      e.preventDefault();
+      const idx=+piece.dataset.piece;
+      const parent=piece.parentElement;
+      const source = parent.classList.contains('cell') ? {type:'cell',pos:+parent.dataset.pos} : {type:'tray'};
+      drag={idx, source};
+      document.body.classList.add('dragging-active');
+      ghost.style.width=pieceW+'px'; ghost.style.height=pieceH+'px';
+      ghost.style.backgroundImage=`url(${pieceData[idx]})`;
+      ghost.style.display='block'; moveGhost(e.clientX,e.clientY);
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    });
+  }
+  function moveGhost(x,y){ ghost.style.left=(x-pieceW/2)+'px'; ghost.style.top=(y-pieceH/2)+'px'; }
+  function onMove(e){ if(!drag) return; moveGhost(e.clientX,e.clientY);
+    clearOver(); const t=targetAt(e.clientX,e.clientY); if(t) t.classList.add('over'); }
+  function onUp(e){
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    ghost.style.display='none'; document.body.classList.remove('dragging-active');
+    const target=targetAt(e.clientX,e.clientY); clearOver();
+    if(drag && target){ if(mode==='swap') dropSwap(target); else dropPlace(target); }
+    drag=null;
+  }
+  function targetAt(x,y){ const el=document.elementFromPoint(x,y); return el?el.closest('.cell, #tray'):null; }
+  function clearOver(){ board.querySelectorAll('.over').forEach(x=>x.classList.remove('over')); tray.classList.remove('over'); }
+
+  function dropSwap(target){
+    if(!target.classList.contains('cell')) return;
+    const a=drag.source.pos, b=+target.dataset.pos; if(a===b) return;
+    [order[a],order[b]]=[order[b],order[a]];
+    bump(); render(); if(isSolved()) onWin();
+  }
+  function dropPlace(target){
+    const src=drag.source, idx=drag.idx;
+    if(target.id==='tray'){
+      if(src.type==='tray') return;
+      slotAt[src.pos]=null; trayPieces.push(idx); bump(); render(); return;
+    }
+    if(!target.classList.contains('cell')) return;
+    const dest=+target.dataset.pos, occupant=slotAt[dest];
+    if(src.type==='tray'){
+      removeFromTray(idx); slotAt[dest]=idx; if(occupant!=null) trayPieces.push(occupant);
+    } else {
+      if(src.pos===dest) return; slotAt[dest]=idx; slotAt[src.pos]=occupant;
+    }
+    bump(); render(); if(isSolved()) onWin();
+  }
+  function removeFromTray(idx){ const i=trayPieces.indexOf(idx); if(i>=0) trayPieces.splice(i,1); }
+
+  function isSolved(){
+    if(mode==='swap') return order.every((v,i)=>v===i);
+    return trayPieces.length===0 && slotAt.every((v,i)=>v===i);
+  }
+  function updateProgress(){
+    const correct = mode==='swap' ? order.filter((v,i)=>v===i).length : slotAt.filter((v,i)=>v===i).length;
+    progressEl.textContent=correct+' / '+n;
+  }
+  function bump(){ moves++; movesEl.textContent=moves; }
+  function onWin(){ stopTimer(); winMsg.classList.add('show'); }
+  function resetStats(){ moves=0; timer=0; movesEl.textContent='0'; timerEl.textContent='0'; winMsg.classList.remove('show'); }
+  function startTimer(){ stopTimer(); timerId=setInterval(()=>{ timer++; timerEl.textContent=timer; },1000); }
+  function stopTimer(){ if(timerId){ clearInterval(timerId); timerId=null; } }
+})();
+</script>
+</body>
+</html>
