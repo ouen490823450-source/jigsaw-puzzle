@@ -34,8 +34,8 @@
     align-items: center;
     justify-content: center;
     box-shadow: 0 6px 20px rgba(0,0,0,.25);
-    margin-bottom: 22px;
-    max-width: 780px;
+    margin-bottom: 16px;
+    max-width: 1200px;
   }
   .control { display: flex; flex-direction: column; gap: 6px; }
   .control label { font-size: 13px; color: #9aa3b8; }
@@ -49,6 +49,19 @@
     padding: 9px 12px; border-radius: 8px; font-size: 14px;
     font-family: inherit; cursor: pointer;
   }
+  .check {
+    display: flex; align-items: center; gap: 8px;
+    background: #3a4055; padding: 9px 12px; border-radius: 8px;
+    font-size: 14px; cursor: pointer; color: #e8ecf4;
+  }
+  .check input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+  .lang-seg { display: flex; border-radius: 8px; overflow: hidden; border: 1px solid #3a4055; }
+  .lang-seg .lang-btn {
+    background: #3a4055; color: #c4cbdc; border: none; border-radius: 0;
+    padding: 9px 12px; font-size: 13px; cursor: pointer; font-family: inherit;
+  }
+  .lang-seg .lang-btn + .lang-btn { border-left: 1px solid #2b3142; }
+  .lang-seg .lang-btn.active { background: var(--accent); color: #fff; }
   button, .filebtn {
     background: var(--accent); color: #fff; border: none;
     padding: 10px 18px; border-radius: 9px; font-size: 14px;
@@ -129,28 +142,40 @@
 </style>
 </head>
 <body>
-  <h1>🧩 拼图游戏</h1>
-  <div class="subtitle">上传本地图片，选择片数与玩法，拼出带凹凸锯齿的经典拼图</div>
+  <h1 id="title">🧩 拼图游戏</h1>
+  <div class="subtitle" id="subtitle">上传本地图片，选择片数与玩法，拼出带凹凸锯齿的经典拼图</div>
 
   <div class="panel">
     <div class="control">
-      <label>选择图片</label>
-      <label class="filebtn" for="fileInput">📁 上传本地图片</label>
+      <label id="lblImage">选择图片</label>
+      <label class="filebtn" id="uploadBtn" for="fileInput">📁 上传本地图片</label>
       <input type="file" id="fileInput" accept="image/*">
     </div>
     <div class="control">
-      <label>拼图片数</label>
+      <label id="lblCount">拼图片数</label>
       <div class="row">
         <input type="range" id="pieceRange" min="2" max="16" value="9">
         <span class="pieces-num" id="pieceLabel">9 片</span>
       </div>
     </div>
     <div class="control">
-      <label>玩法模式</label>
+      <label id="lblMode">玩法模式</label>
       <select id="modeSelect">
         <option value="swap">交换模式（棋盘内互换）</option>
         <option value="place">拖放模式（从待拼区拖入）</option>
       </select>
+    </div>
+    <div class="control">
+      <label id="lblShape">拼块形状</label>
+      <label class="check"><input type="checkbox" id="jaggedToggle" checked><span id="jaggedLabel">凹凸锯齿边缘</span></label>
+    </div>
+    <div class="control">
+      <label id="lblLang">语言</label>
+      <div class="lang-seg" id="langSeg">
+        <button type="button" class="lang-btn active" data-lang="zh">中文</button>
+        <button type="button" class="lang-btn" data-lang="ja">日本語</button>
+        <button type="button" class="lang-btn" data-lang="en">English</button>
+      </div>
     </div>
     <div class="control">
       <label>&nbsp;</label>
@@ -162,16 +187,16 @@
   </div>
 
   <div class="stats">
-    <div>用时：<b id="timer">0</b> 秒</div>
-    <div>步数：<b id="moves">0</b></div>
-    <div>布局：<b id="layout">—</b></div>
-    <div>进度：<b id="progress">—</b></div>
+    <div><span id="lblTime">用时：</span><b id="timer">0</b> <span id="lblSec">秒</span></div>
+    <div><span id="lblMoves">步数：</span><b id="moves">0</b></div>
+    <div><span id="lblLayout">布局：</span><b id="layout">—</b></div>
+    <div><span id="lblProgress">进度：</span><b id="progress">—</b></div>
   </div>
 
   <div class="arena">
     <div id="board"><div class="placeholder">请先上传一张本地图片，<br>选择玩法后点击「开始 / 打乱」</div></div>
     <div class="tray-wrap" id="trayWrap" style="display:none;">
-      <div class="tray-title">待拼区（拖到上方格子）</div>
+      <div class="tray-title" id="trayTitle">待拼区（拖到上方格子）</div>
       <div id="tray"></div>
     </div>
   </div>
@@ -185,21 +210,70 @@
   const $ = id => document.getElementById(id);
   const fileInput=$('fileInput'), pieceRange=$('pieceRange'), pieceLabel=$('pieceLabel');
   const modeSelect=$('modeSelect'), startBtn=$('startBtn'), previewBtn=$('previewBtn');
+  const jaggedToggle=$('jaggedToggle');
   const board=$('board'), tray=$('tray'), trayWrap=$('trayWrap'), ghost=$('ghost');
   const timerEl=$('timer'), movesEl=$('moves'), layoutEl=$('layout'), progressEl=$('progress');
   const winMsg=$('winMsg'), hintEl=$('hint');
 
-  const BOARD_MAX = 480;
+  const BOARD_MAX = 900;     // 棋盘最大边长上限（大屏如 iPad Pro 会撑大，小屏自动收缩）
   const TAB = 0.26;          // 凸起高度（相对边长）
-  const HINTS = {
-    swap: '交换模式：把一块拖到另一块上即可交换位置。凸起(凸)与凹槽(凹)互补，拼对后边缘严丝合缝；绿色光晕表示已归位。',
-    place: '拖放模式：所有拼块散落在下方待拼区。把每块拖到上方正确格子；可与已放置的块交换，或拖回待拼区。全部归位即获胜。'
+
+  // ---------- 多语言 ----------
+  const I18N = {
+    zh: {
+      docTitle:'拼图游戏', title:'🧩 拼图游戏',
+      subtitle:'上传本地图片，选择片数与玩法，拼出带凹凸锯齿的经典拼图',
+      lblImage:'选择图片', uploadBtn:'📁 上传本地图片',
+      lblCount:'拼图片数', unit:k=>k+' 片',
+      lblMode:'玩法模式', modeSwap:'交换模式（棋盘内互换）', modePlace:'拖放模式（从待拼区拖入）',
+      lblShape:'拼块形状', jaggedLabel:'凹凸锯齿边缘', lblLang:'语言',
+      start:'开始 / 打乱', preview:'查看原图', back:'返回游戏',
+      lblTime:'用时：', lblSec:'秒', lblMoves:'步数：', lblLayout:'布局：', lblProgress:'进度：',
+      phStart:'请先上传一张本地图片，<br>选择玩法后点击「开始 / 打乱」',
+      phReady:'图片已就绪，点击「开始 / 打乱」开始游戏',
+      trayTitle:'待拼区（拖到上方格子）', win:'🎉 恭喜完成拼图！',
+      hintSwap:'交换模式：把一块拖到另一块上即可交换位置。凸起(凸)与凹槽(凹)互补，拼对后边缘严丝合缝；绿色光晕表示已归位。',
+      hintPlace:'拖放模式：所有拼块散落在下方待拼区。把每块拖到上方正确格子；可与已放置的块交换，或拖回待拼区。全部归位即获胜。'
+    },
+    ja: {
+      docTitle:'ジグソーパズル', title:'🧩 ジグソーパズル',
+      subtitle:'画像をアップロードし、ピース数とモードを選んで、本格的なジグソーパズルを楽しもう',
+      lblImage:'画像', uploadBtn:'📁 画像を選択',
+      lblCount:'ピース数', unit:k=>k+' ピース',
+      lblMode:'モード', modeSwap:'交換モード（盤面で入れ替え）', modePlace:'配置モード（トレイからドラッグ）',
+      lblShape:'ピース形状', jaggedLabel:'凹凸のギザギザ', lblLang:'言語',
+      start:'スタート / シャッフル', preview:'見本を見る', back:'ゲームに戻る',
+      lblTime:'時間：', lblSec:'秒', lblMoves:'手数：', lblLayout:'配置：', lblProgress:'進捗：',
+      phStart:'まず画像をアップロードし、<br>モードを選んで「スタート / シャッフル」を押してください',
+      phReady:'画像の準備ができました。「スタート / シャッフル」でゲーム開始',
+      trayTitle:'トレイ（上の盤面へドラッグ）', win:'🎉 パズル完成、おめでとう！',
+      hintSwap:'交換モード：ピースを別のピースへドラッグすると位置が入れ替わります。凸と凹は対になっていて、正しく揃うとぴったり噛み合います。緑の光は正しい位置を表します。',
+      hintPlace:'配置モード：すべてのピースは下のトレイにあります。各ピースを上の正しいマスへドラッグしましょう。置いたピースと交換したり、トレイへ戻すこともできます。すべて揃えばクリアです。'
+    },
+    en: {
+      docTitle:'Jigsaw Puzzle', title:'🧩 Jigsaw Puzzle',
+      subtitle:'Upload a local image, choose piece count and mode, and solve a real jigsaw puzzle',
+      lblImage:'Image', uploadBtn:'📁 Upload image',
+      lblCount:'Pieces', unit:k=>k+' pcs',
+      lblMode:'Mode', modeSwap:'Swap (rearrange on board)', modePlace:'Place (drag from tray)',
+      lblShape:'Piece shape', jaggedLabel:'Jagged edges', lblLang:'Language',
+      start:'Start / Shuffle', preview:'Show original', back:'Back to game',
+      lblTime:'Time:', lblSec:'s', lblMoves:'Moves:', lblLayout:'Grid:', lblProgress:'Progress:',
+      phStart:'Upload an image first,<br>choose a mode, then press “Start / Shuffle”',
+      phReady:'Image ready — press “Start / Shuffle” to begin',
+      trayTitle:'Tray (drag to the board above)', win:'🎉 Puzzle complete — well done!',
+      hintSwap:'Swap mode: drag one piece onto another to swap them. Tabs and blanks interlock, so correct fits snap together seamlessly. A green glow marks pieces already in the right spot.',
+      hintPlace:'Place mode: all pieces start in the tray below. Drag each piece to its correct cell above; you can swap with placed pieces or send one back to the tray. Solve them all to win.'
+    }
   };
+  let currentLang = (window.localStorage && localStorage.getItem('puzzleLang')) || 'zh';
+  if(!I18N[currentLang]) currentLang='zh';
+  const L = () => I18N[currentLang];
 
   let imgURL=null, imgEl=null;
   let rows=1, cols=1, n=9;
   let cellW=0, cellH=0, boardW=0, boardH=0, m=0, pieceW=0, pieceH=0, trayScale=1;
-  let mode='swap';
+  let mode='swap', jagged=true;
   let moves=0, timer=0, timerId=null;
   let showingPreview=false, active=false;
 
@@ -217,12 +291,40 @@
   }
   function updateLayoutLabel(){
     const num=+pieceRange.value; const [r,c]=bestLayout(num);
-    pieceLabel.textContent=num+' 片'; layoutEl.textContent=r+' × '+c;
+    pieceLabel.textContent=L().unit(num); layoutEl.textContent=r+' × '+c;
   }
   pieceRange.addEventListener('input', updateLayoutLabel); updateLayoutLabel();
 
-  modeSelect.addEventListener('change', ()=>{ mode=modeSelect.value; hintEl.textContent=HINTS[mode]; if(active) start(); });
-  hintEl.textContent=HINTS[mode];
+  modeSelect.addEventListener('change', ()=>{ mode=modeSelect.value; hintEl.textContent=(mode==='place')?L().hintPlace:L().hintSwap; if(active) start(); });
+  jaggedToggle.addEventListener('change', ()=>{ if(active) start(); });
+
+  // 应用当前语言到所有界面文案
+  function applyLang(lang){
+    if(lang){ currentLang=lang; try{ localStorage.setItem('puzzleLang',lang); }catch(e){} }
+    const d=L();
+    document.documentElement.lang = (currentLang==='zh'?'zh-CN':currentLang);
+    document.title=d.docTitle;
+    $('title').textContent=d.title; $('subtitle').textContent=d.subtitle;
+    $('lblImage').textContent=d.lblImage; $('uploadBtn').textContent=d.uploadBtn;
+    $('lblCount').textContent=d.lblCount;
+    $('lblMode').textContent=d.lblMode;
+    modeSelect.options[0].text=d.modeSwap; modeSelect.options[1].text=d.modePlace;
+    $('lblShape').textContent=d.lblShape; $('jaggedLabel').textContent=d.jaggedLabel;
+    $('lblLang').textContent=d.lblLang;
+    startBtn.textContent=d.start;
+    previewBtn.textContent = showingPreview ? d.back : d.preview;
+    $('lblTime').textContent=d.lblTime; $('lblSec').textContent=d.lblSec;
+    $('lblMoves').textContent=d.lblMoves; $('lblLayout').textContent=d.lblLayout; $('lblProgress').textContent=d.lblProgress;
+    $('trayTitle').textContent=d.trayTitle; winMsg.textContent=d.win;
+    hintEl.textContent = (mode==='place') ? d.hintPlace : d.hintSwap;
+    pieceLabel.textContent=d.unit(+pieceRange.value);
+    document.querySelectorAll('#langSeg .lang-btn').forEach(b=>b.classList.toggle('active', b.dataset.lang===currentLang));
+    if(!active) board.innerHTML='<div class="placeholder">'+(imgEl?d.phReady:d.phStart)+'</div>';
+  }
+  document.querySelectorAll('#langSeg .lang-btn').forEach(b=>{
+    b.addEventListener('click', ()=>applyLang(b.dataset.lang));
+  });
+  applyLang(); // 初始化（含 localStorage 记忆的语言）
 
   fileInput.addEventListener('change', e=>{
     const file=e.target.files[0]; if(!file) return;
@@ -230,51 +332,86 @@
     imgURL=URL.createObjectURL(file);
     imgEl=new Image();
     imgEl.onload=()=>{ startBtn.disabled=false; previewBtn.disabled=false;
-      board.innerHTML='<div class="placeholder">图片已就绪，点击「开始 / 打乱」开始游戏</div>'; };
+      if(!active) board.innerHTML='<div class="placeholder">'+L().phReady+'</div>'; };
     imgEl.src=imgURL;
   });
 
   startBtn.addEventListener('click', start);
   previewBtn.addEventListener('click', ()=>{ if(!active) return;
-    showingPreview=!showingPreview; previewBtn.textContent=showingPreview?'返回游戏':'查看原图'; render(); });
+    showingPreview=!showingPreview; previewBtn.textContent=showingPreview?L().back:L().preview; render(); });
 
   function start(){
     if(!imgEl) return;
-    mode=modeSelect.value; n=+pieceRange.value;
+    mode=modeSelect.value; n=+pieceRange.value; jagged=jaggedToggle.checked;
     [rows,cols]=bestLayout(n); layoutEl.textContent=rows+' × '+cols;
 
-    const ratio=imgEl.naturalWidth/imgEl.naturalHeight;
-    // 自适应屏幕：先按宽度铺满（手机上不溢出），再按高度收一下
-    const maxW=Math.min(BOARD_MAX, window.innerWidth-24);
-    const maxH=Math.min(BOARD_MAX, (window.innerHeight||800)-120);
-    let bw=maxW, bh=bw/ratio;
-    if(bh>maxH){ bh=maxH; bw=bh*ratio; }
-    boardW=bw; boardH=bh;
-    cellW=boardW/cols; cellH=boardH/rows;
-    m=Math.ceil(TAB*Math.max(cellW,cellH))+2;
-    pieceW=Math.ceil(cellW)+2*m; pieceH=Math.ceil(cellH)+2*m;
-    // 待拼区缩略图：让格子主体约 50px，过大则缩小，过小则保持原样
-    trayScale=Math.min(1, 50/cellW);
+    // 先显示/隐藏待拼区，再实测棋盘上方占用的高度
+    trayWrap.style.display = (mode==='place') ? '' : 'none';
 
-    board.style.gridTemplateColumns=`repeat(${cols}, ${cellW}px)`;
-    board.style.gridTemplateRows=`repeat(${rows}, ${cellH}px)`;
-    board.style.width=boardW+'px'; board.style.height=boardH+'px';
+    const ratio=imgEl.naturalWidth/imgEl.naturalHeight;
+    const vw=window.innerWidth, vh=window.innerHeight||800;
+    // 实测棋盘上方（面板+统计）已占用的高度——它随屏幕宽度换行而变化，不能写死
+    const arenaTop=document.querySelector('.arena').getBoundingClientRect().top;
+    const smallScreen = arenaTop > vh*0.4; // 顶部控件占比大（手机）→ 不做一屏适配，按宽度铺满+滚动
+    const maxW=Math.min(BOARD_MAX, vw-32);
+    let bw=maxW, bh=bw/ratio;
+    if(!smallScreen){
+      // 大屏（如 iPad）：按可用高度收一下，让棋盘+待拼区尽量一屏放下，再由 fitToScreen 精修
+      const below=(mode==='place') ? 90 : 60;
+      const maxH=Math.min(BOARD_MAX, vh-arenaTop-below);
+      if(bh>maxH){ bh=Math.max(160,maxH); bw=bh*ratio; }
+    } else {
+      // 小屏：仅按宽度铺满，限制竖图过高
+      const cap=Math.min(BOARD_MAX, vw*1.5);
+      if(bh>cap){ bh=cap; bw=bh*ratio; }
+    }
+    boardW=bw; boardH=bh;
+    applyBoardSize();
 
     generateEdges();
     buildPieces();
 
     const ids=Array.from({length:n},(_,i)=>i);
     if(mode==='swap'){
-      trayWrap.style.display='none';
       order=ids.slice(); do{ shuffle(order); }while(order.every((v,i)=>v===i)&&n>1);
     } else {
-      trayWrap.style.display='';
-      tray.style.width=Math.round(boardW)+'px'; // 待拼区与棋盘等宽，置于下方
       slotAt=new Array(n).fill(null); trayPieces=ids.slice(); shuffle(trayPieces);
     }
 
-    showingPreview=false; previewBtn.textContent='查看原图';
+    showingPreview=false; previewBtn.textContent=L().preview;
     active=true; resetStats(); render(); startTimer();
+    fitToScreen(); // 兜底：整页超出一屏则按比例缩小棋盘
+  }
+
+  // 由 boardW/boardH 计算派生尺寸并应用到 DOM
+  function applyBoardSize(){
+    cellW=boardW/cols; cellH=boardH/rows;
+    // 锯齿开启时预留凸起外延空间；关闭时仅留细边
+    m=jagged ? Math.ceil(TAB*Math.max(cellW,cellH))+2 : 2;
+    pieceW=Math.ceil(cellW)+2*m; pieceH=Math.ceil(cellH)+2*m;
+    trayScale=Math.min(1, 50/cellW); // 待拼区缩略图：格子主体约 50px
+    board.style.gridTemplateColumns=`repeat(${cols}, ${cellW}px)`;
+    board.style.gridTemplateRows=`repeat(${rows}, ${cellH}px)`;
+    board.style.width=boardW+'px'; board.style.height=boardH+'px';
+    // 待拼区按视口宽度铺开（更宽更矮，且不与棋盘宽度耦合）
+    if(mode==='place') tray.style.width=Math.min(vw0(), 1100)+'px';
+  }
+  function vw0(){ return (window.innerWidth||800)-32; }
+
+  // 大屏（如 iPad）上若整页超出视口，按比例缩小棋盘以一屏放下；
+  // 小屏（手机，顶部控件占比大）则保持按宽度铺满、允许正常上下滚动
+  function fitToScreen(){
+    const vh=window.innerHeight||800;
+    const arenaTop=document.querySelector('.arena').getBoundingClientRect().top;
+    if(arenaTop > vh*0.4) return; // 顶部占比过大 → 视为小屏，不强行一屏
+    for(let i=0;i<3;i++){
+      const overflow=document.documentElement.scrollHeight - vh;
+      if(overflow<=6) break;
+      const k=Math.max(0.6, (boardH-overflow-12)/boardH);
+      if(k>=0.999) break;
+      boardW*=k; boardH*=k;
+      applyBoardSize(); buildPieces(); render();
+    }
   }
 
   function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } }
@@ -283,6 +420,7 @@
   function generateEdges(){
     rightEdge=Array.from({length:rows},()=>new Array(cols).fill(0));
     bottomEdge=Array.from({length:rows},()=>new Array(cols).fill(0));
+    if(!jagged) return; // 关闭锯齿：所有边保持平直，拼块为方块
     for(let r=0;r<rows;r++) for(let c=0;c<cols-1;c++) rightEdge[r][c]=Math.random()<0.5?1:-1;
     for(let r=0;r<rows-1;r++) for(let c=0;c<cols;c++) bottomEdge[r][c]=Math.random()<0.5?1:-1;
   }
@@ -366,7 +504,7 @@
   }
 
   function renderSwap(){
-    board.innerHTML='';
+    board.innerHTML=''; tray.innerHTML=''; // 清掉拖放模式可能遗留的待拼区拼块
     for(let pos=0;pos<n;pos++){
       const cell=cellEl(pos,false);
       const idx=showingPreview?pos:order[pos];
