@@ -74,8 +74,11 @@
   button.secondary { background: #3a4055; }
   input[type="file"] { display: none; }
 
-  .stats { display: flex; gap: 16px; margin-bottom: 8px; font-size: 12.5px; color: #c4cbdc; flex-wrap: wrap; justify-content: center; }
+  .stats { display: flex; gap: 16px; margin-bottom: 8px; font-size: 12.5px; color: #c4cbdc; flex-wrap: wrap; justify-content: center; align-items: center; }
   .stats b { color: var(--accent); }
+  .soundbtn { background: #3a4055; border: none; color: #e8ecf4; border-radius: 7px;
+    padding: 3px 9px; font-size: 15px; line-height: 1.2; cursor: pointer; }
+  .soundbtn.off { opacity: .5; }
 
   .arena { display: flex; flex-direction: column; gap: 12px; align-items: center; justify-content: flex-start; }
 
@@ -201,6 +204,7 @@
     <div><span id="lblMoves">步数：</span><b id="moves">0</b></div>
     <div><span id="lblLayout">布局：</span><b id="layout">—</b></div>
     <div><span id="lblProgress">进度：</span><b id="progress">—</b></div>
+    <button type="button" id="soundBtn" class="soundbtn" title="提示音">🔊</button>
   </div>
 
   <div class="arena">
@@ -222,6 +226,7 @@
   const modeSelect=$('modeSelect'), startBtn=$('startBtn'), previewBtn=$('previewBtn');
   const jaggedToggle=$('jaggedToggle');
   const zoomOut=$('zoomOut'), zoomIn=$('zoomIn'), zoomVal=$('zoomVal');
+  const soundBtn=$('soundBtn');
   const board=$('board'), tray=$('tray'), trayWrap=$('trayWrap'), ghost=$('ghost');
   const timerEl=$('timer'), movesEl=$('moves'), layoutEl=$('layout'), progressEl=$('progress');
   const winMsg=$('winMsg'), hintEl=$('hint');
@@ -239,7 +244,7 @@
       lblMode:'玩法模式', modeSwap:'交换模式', modePlace:'拖放模式',
       lblShape:'拼块形状', jaggedLabel:'凹凸锯齿边缘', lblLang:'语言', lblZoom:'棋盘大小',
       start:'开始 / 打乱', preview:'查看原图', back:'返回游戏',
-      lblTime:'用时：', lblSec:'秒', lblMoves:'步数：', lblLayout:'布局：', lblProgress:'进度：',
+      lblTime:'用时：', lblSec:'秒', lblMoves:'步数：', lblLayout:'布局：', lblProgress:'进度：', lblSound:'提示音',
       phStart:'请先上传一张本地图片，<br>选择玩法后点击「开始 / 打乱」',
       phReady:'图片已就绪，点击「开始 / 打乱」开始游戏',
       trayTitle:'待拼区（拖到上方格子）', win:'🎉 恭喜完成拼图！',
@@ -254,7 +259,7 @@
       lblMode:'モード', modeSwap:'交換モード', modePlace:'配置モード',
       lblShape:'ピース形状', jaggedLabel:'凹凸のギザギザ', lblLang:'言語', lblZoom:'盤面サイズ',
       start:'スタート / シャッフル', preview:'見本を見る', back:'ゲームに戻る',
-      lblTime:'時間：', lblSec:'秒', lblMoves:'手数：', lblLayout:'配置：', lblProgress:'進捗：',
+      lblTime:'時間：', lblSec:'秒', lblMoves:'手数：', lblLayout:'配置：', lblProgress:'進捗：', lblSound:'効果音',
       phStart:'まず画像をアップロードし、<br>モードを選んで「スタート / シャッフル」を押してください',
       phReady:'画像の準備ができました。「スタート / シャッフル」でゲーム開始',
       trayTitle:'トレイ（上の盤面へドラッグ）', win:'🎉 パズル完成、おめでとう！',
@@ -269,7 +274,7 @@
       lblMode:'Mode', modeSwap:'Swap', modePlace:'Place',
       lblShape:'Piece shape', jaggedLabel:'Jagged edges', lblLang:'Language', lblZoom:'Board size',
       start:'Start / Shuffle', preview:'Show original', back:'Back to game',
-      lblTime:'Time:', lblSec:'s', lblMoves:'Moves:', lblLayout:'Grid:', lblProgress:'Progress:',
+      lblTime:'Time:', lblSec:'s', lblMoves:'Moves:', lblLayout:'Grid:', lblProgress:'Progress:', lblSound:'Sound',
       phStart:'Upload an image first,<br>choose a mode, then press “Start / Shuffle”',
       phReady:'Image ready — press “Start / Shuffle” to begin',
       trayTitle:'Tray (drag to the board above)', win:'🎉 Puzzle complete — well done!',
@@ -296,6 +301,42 @@
   let rightEdge=[], bottomEdge=[]; // 边的凹凸（±1）
 
   let drag=null;
+
+  // ---------- 音效（Web Audio 现场合成，无需音频文件） ----------
+  let audioCtx=null, soundOn=true;
+  try{ soundOn = localStorage.getItem('puzzleSound')!=='off'; }catch(e){}
+  function ensureAudio(){
+    try{
+      if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+      if(audioCtx.state==='suspended') audioCtx.resume();
+    }catch(e){ audioCtx=null; }
+    return audioCtx;
+  }
+  function tone(freq, startT, dur, peak){
+    const ctx=audioCtx; if(!ctx) return;
+    const o=ctx.createOscillator(), g=ctx.createGain();
+    o.type='triangle'; o.frequency.value=freq;
+    o.connect(g); g.connect(ctx.destination);
+    const t=ctx.currentTime+startT;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak, t+0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+    o.start(t); o.stop(t+dur+0.03);
+  }
+  function playCorrect(){ if(!soundOn||!ensureAudio()) return; tone(880,0,0.13,0.28); tone(1318.51,0.085,0.18,0.24); } // 叮~
+  function playWin(){ if(!soundOn||!ensureAudio()) return; [523.25,659.25,783.99,1046.5].forEach((f,i)=>tone(f,i*0.13,0.28,0.26)); } // 上行小旋律
+  function correctCount(){ return mode==='swap' ? order.filter((v,i)=>v===i).length : slotAt.filter((v,i)=>v===i).length; }
+  function afterMove(before){ // 移动后：拼对增加→叮，全部完成→旋律
+    if(isSolved()){ onWin(); }
+    else if(correctCount()>before){ playCorrect(); }
+  }
+  function updateSoundBtn(){ soundBtn.textContent = soundOn ? '🔊' : '🔇'; soundBtn.classList.toggle('off', !soundOn); }
+  soundBtn.addEventListener('click', ()=>{
+    soundOn=!soundOn; try{ localStorage.setItem('puzzleSound', soundOn?'on':'off'); }catch(e){}
+    updateSoundBtn();
+    if(soundOn){ ensureAudio(); playCorrect(); } // 开启时播放一次试听
+  });
+  updateSoundBtn();
 
   function bestLayout(num){
     let best=[1,num];
@@ -328,7 +369,7 @@
     previewBtn.textContent = showingPreview ? d.back : d.preview;
     $('lblTime').textContent=d.lblTime; $('lblSec').textContent=d.lblSec;
     $('lblMoves').textContent=d.lblMoves; $('lblLayout').textContent=d.lblLayout; $('lblProgress').textContent=d.lblProgress;
-    $('trayTitle').textContent=d.trayTitle; winMsg.textContent=d.win;
+    $('trayTitle').textContent=d.trayTitle; winMsg.textContent=d.win; soundBtn.title=d.lblSound;
     hintEl.textContent = (mode==='place') ? d.hintPlace : d.hintSwap;
     pieceLabel.textContent=d.unit(+pieceRange.value);
     document.querySelectorAll('#langSeg .lang-btn').forEach(b=>b.classList.toggle('active', b.dataset.lang===currentLang));
@@ -599,8 +640,9 @@
   function dropSwap(target){
     if(!target.classList.contains('cell')) return;
     const a=drag.source.pos, b=+target.dataset.pos; if(a===b) return;
+    const before=correctCount();
     [order[a],order[b]]=[order[b],order[a]];
-    bump(); render(); if(isSolved()) onWin();
+    bump(); render(); afterMove(before);
   }
   function dropPlace(target){
     const src=drag.source, idx=drag.idx;
@@ -610,12 +652,13 @@
     }
     if(!target.classList.contains('cell')) return;
     const dest=+target.dataset.pos, occupant=slotAt[dest];
+    const before=correctCount();
     if(src.type==='tray'){
       removeFromTray(idx); slotAt[dest]=idx; if(occupant!=null) trayPieces.push(occupant);
     } else {
       if(src.pos===dest) return; slotAt[dest]=idx; slotAt[src.pos]=occupant;
     }
-    bump(); render(); if(isSolved()) onWin();
+    bump(); render(); afterMove(before);
   }
   function removeFromTray(idx){ const i=trayPieces.indexOf(idx); if(i>=0) trayPieces.splice(i,1); }
 
@@ -623,12 +666,9 @@
     if(mode==='swap') return order.every((v,i)=>v===i);
     return trayPieces.length===0 && slotAt.every((v,i)=>v===i);
   }
-  function updateProgress(){
-    const correct = mode==='swap' ? order.filter((v,i)=>v===i).length : slotAt.filter((v,i)=>v===i).length;
-    progressEl.textContent=correct+' / '+n;
-  }
+  function updateProgress(){ progressEl.textContent=correctCount()+' / '+n; }
   function bump(){ moves++; movesEl.textContent=moves; }
-  function onWin(){ stopTimer(); winMsg.classList.add('show'); }
+  function onWin(){ stopTimer(); winMsg.classList.add('show'); playWin(); }
   function resetStats(){ moves=0; timer=0; movesEl.textContent='0'; timerEl.textContent='0'; winMsg.classList.remove('show'); }
   function startTimer(){ stopTimer(); timerId=setInterval(()=>{ timer++; timerEl.textContent=timer; },1000); }
   function stopTimer(){ if(timerId){ clearInterval(timerId); timerId=null; } }
